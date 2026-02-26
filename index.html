@@ -4,179 +4,208 @@
 <meta charset="UTF-8">
 <title>Task List</title>
 <style>
-  body { font-family: Arial, sans-serif; padding: 20px; background: #4D148C; color: #fff; }
-  table { border-collapse: collapse; width: 100%; margin-top: 20px; background: #fff; color: #000; }
-  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; vertical-align: top; }
-  th { background: #FF6600; color: #fff; }
-  input, button, select { padding: 5px; margin: 5px 0; }
-  button { background: #4D148C; color: #fff; border: none; cursor: pointer; }
-  button:hover { background: #FF6600; color: #000; }
-  .edit-container { display: flex; flex-direction: column; }
-  .history { font-size: 0.8em; color: #333; max-height: 150px; overflow-y: auto; background: #f9f9f9; padding: 6px; border-radius: 4px; margin-top: 6px; border: 1px solid #ccc; }
+body {
+    font-family: Arial, sans-serif;
+    background-color: #4d148c; /* FedEx purple background */
+    color: white;
+    padding: 20px;
+}
+h1 { text-align: center; }
+table { width: 100%; border-collapse: collapse; background-color: #fff; color: #000; }
+th, td { padding: 10px; border: 1px solid #ccc; text-align: left; }
+select { padding: 2px; }
+button { margin: 2px; }
+.edit-popup {
+    display: none;
+    position: fixed;
+    top: 20%;
+    left: 35%;
+    width: 30%;
+    padding: 20px;
+    background: #fff;
+    color: #000;
+    border: 2px solid #4d148c;
+    z-index: 100;
+}
+.edit-popup textarea, .edit-popup input { width: 100%; }
+.edit-popup button { margin-top: 10px; }
 </style>
 </head>
 <body>
 
-<h2>Task List</h2>
+<h1>Task List</h1>
 
-<label>Task: <input type="text" id="taskInput"></label><br>
-<label>Assigned To: <input type="text" id="assignedInput"></label><br>
-<label>Comment: <input type="text" id="commentInput"></label><br>
-<button onclick="addTask()">Add Task</button>
-<button onclick="downloadExcel()">Download Excel</button>
+<button onclick="showAddTask()">Add Task</button>
+<button onclick="exportToExcel()">Download Data</button>
 
 <table id="taskTable">
-  <thead>
-    <tr>
-      <th>Task</th>
-      <th>Assigned To</th>
-      <th>Date Added</th>
-      <th>Comment</th>
-      <th>Status</th>
-      <th>Actions</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
+<thead>
+<tr>
+    <th>Task</th>
+    <th>Date Added</th>
+    <th>Assigned To</th>
+    <th>Comment</th>
+    <th>Status</th>
+    <th>Actions</th>
+</tr>
+</thead>
+<tbody></tbody>
 </table>
 
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<!-- Add Task Popup -->
+<div id="addTaskPopup" class="edit-popup">
+<h3>Add Task</h3>
+<input type="text" id="taskInput" placeholder="Task"><br><br>
+<input type="text" id="assignedInput" placeholder="Assigned To"><br><br>
+<textarea id="commentInput" placeholder="Comment"></textarea><br><br>
+<button onclick="addTask()">Add</button>
+<button onclick="closeAddTask()">Cancel</button>
+</div>
+
+<!-- Edit Comment Popup -->
+<div id="editPopup" class="edit-popup">
+<h3>Edit Comment</h3>
+<textarea id="editCommentInput"></textarea><br><br>
+<button onclick="saveEdit()">Save</button>
+<button onclick="closeEdit()">Cancel</button>
+</div>
+
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-database-compat.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 
 <script>
-  // ----- Firebase config -----
-  const firebaseConfig = {
-    apiKey: "AIzaSyAYW9gEZOpNjhCGhyXaUbIGDIHThQY1tmo",
-    authDomain: "task-list-80827.firebaseapp.com",
-    databaseURL: "https://task-list-80827-default-rtdb.firebaseio.com",
-    projectId: "task-list-80827",
-    storageBucket: "task-list-80827.firebasestorage.app",
-    messagingSenderId: "576934957722",
-    appId: "1:576934957722:web:c4be19707d3d6257740523"
-  };
+// Firebase config
+const firebaseConfig = {
+  apiKey: "AIzaSyAYW9gEZOpNjhCGhyXaUbIGDIHThQY1tmo",
+  authDomain: "task-list-80827.firebaseapp.com",
+  databaseURL: "https://task-list-80827-default-rtdb.firebaseio.com",
+  projectId: "task-list-80827",
+  storageBucket: "task-list-80827.firebasestorage.app",
+  messagingSenderId: "576934957722",
+  appId: "1:576934957722:web:c4be19707d3d6257740523"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
-  // ----- Initialize Firebase -----
-  firebase.initializeApp(firebaseConfig);
-  const db = firebase.database();
+// Globals
+let currentEditId = null;
+let oldComment = "";
 
-  let tasks = [];
-  let editIndex = null;
-
-  // Listen for real-time updates
-  db.ref('tasks').on('value', snapshot => {
-    tasks = snapshot.val() || [];
-    updateTable();
-  });
-
-  function saveData() {
-    db.ref('tasks').set(tasks);
-  }
-
-  function addTask() {
-    const task = document.getElementById('taskInput').value.trim();
-    const assigned = document.getElementById('assignedInput').value.trim();
-    const comment = document.getElementById('commentInput').value.trim();
-    if (!task) { alert("Enter a task!"); return; }
-    tasks.push({
-      task: task,
-      assignedTo: assigned,
-      date: new Date().toISOString().slice(0,10),
-      comment: comment,
-      status: "Incomplete",
-      history: [`${new Date().toLocaleString()}: Created → ${comment}`]
+// Load tasks
+function loadTasks() {
+    const tbody = document.querySelector("#taskTable tbody");
+    tbody.innerHTML = "";
+    db.ref('tasks').once('value', snapshot => {
+        snapshot.forEach(child => {
+            const data = child.val();
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${data.task}</td>
+                <td>${data.dateAdded}</td>
+                <td>${data.assignedTo || ""}</td>
+                <td>${data.comment}</td>
+                <td>
+                    <select onchange="updateStatus('${child.key}', this)">
+                        <option value="Incomplete" ${data.status==="Incomplete"?"selected":""}>Incomplete</option>
+                        <option value="Complete" ${data.status==="Complete"?"selected":""}>Complete</option>
+                    </select>
+                </td>
+                <td>
+                    <button onclick="openEdit('${child.key}', '${data.comment.replace(/'/g,"\\'")}')">Edit</button>
+                    <button onclick="deleteTask('${child.key}')">Delete</button>
+                </td>
+            `;
+            const select = tr.querySelector('select');
+            select.style.background = data.status === "Complete" ? "lightgreen" : "salmon";
+            tbody.appendChild(tr);
+        });
     });
-    saveData();
-    document.getElementById('taskInput').value = '';
-    document.getElementById('assignedInput').value = '';
-    document.getElementById('commentInput').value = '';
-  }
+}
 
-  function updateStatus(index, selectElem) {
-    tasks[index].status = selectElem.value;
-    saveData();
-  }
-
-  function editTask(index) {
-    editIndex = index;
-    updateTable();
-  }
-
-  function saveTask(index) {
-    const inputComment = document.getElementById(`editComment${index}`);
-    const inputAssigned = document.getElementById(`editAssigned${index}`);
-    const oldComment = tasks[index].comment;
-    const oldAssigned = tasks[index].assignedTo;
-
-    if (inputComment.value !== oldComment) {
-      tasks[index].history.push(`${new Date().toLocaleString()}: "${oldComment}" → "${inputComment.value}"`);
-      tasks[index].comment = inputComment.value;
-    }
-    if (inputAssigned.value !== oldAssigned) {
-      tasks[index].history.push(`${new Date().toLocaleString()}: Assigned To "${oldAssigned}" → "${inputAssigned.value}"`);
-      tasks[index].assignedTo = inputAssigned.value;
-    }
-    editIndex = null;
-    saveData();
-  }
-
-  function deleteTask(index) {
-    if (confirm("Are you sure you want to delete this task?")) {
-      tasks.splice(index, 1);
-      editIndex = null;
-      saveData();
-    }
-  }
-
-  function updateTable() {
-    const tbody = document.querySelector('#taskTable tbody');
-    tbody.innerHTML = '';
-    tasks.forEach((t, i) => {
-      let rowColor = t.status === 'Complete' ? '#c6efce' : '#ffc7ce';
-
-      let taskCell = t.task;
-      let assignedCell = t.assignedTo;
-      let commentCell = t.comment;
-      let actionsCell = `<button onclick="editTask(${i})">Edit</button> <button onclick="deleteTask(${i})">Delete</button>`;
-
-      if (editIndex === i) {
-        taskCell = t.task;
-        assignedCell = `<input type="text" id="editAssigned${i}" value="${t.assignedTo}">`;
-        commentCell = `<div class="edit-container">
-                        <input type="text" id="editComment${i}" value="${t.comment}">
-                        <button onclick="saveTask(${i})">Save</button>
-                        <div class="history">${t.history.map(h=>`<div>${h}</div>`).join('')}</div>
-                       </div>`;
-        actionsCell = `<button onclick="deleteTask(${i})">Delete</button>`;
-      }
-
-      tbody.innerHTML += `<tr style="background-color:${rowColor}">
-        <td>${taskCell}</td>
-        <td>${assignedCell}</td>
-        <td>${t.date}</td>
-        <td>${commentCell}</td>
-        <td>
-          <select onchange="updateStatus(${i}, this)">
-            <option ${t.status==='Incomplete'?'selected':''}>Incomplete</option>
-            <option ${t.status==='Complete'?'selected':''}>Complete</option>
-          </select>
-        </td>
-        <td>${actionsCell}</td>
-      </tr>`;
+// Add Task
+function showAddTask(){ document.getElementById('addTaskPopup').style.display='block'; }
+function closeAddTask(){ document.getElementById('addTaskPopup').style.display='none'; }
+function addTask(){
+    const task = document.getElementById('taskInput').value;
+    const comment = document.getElementById('commentInput').value;
+    const assignedTo = document.getElementById('assignedInput').value;
+    if(!task) return alert("Task required");
+    const newTask = {
+        task,
+        comment,
+        assignedTo,
+        status: "Incomplete",
+        dateAdded: new Date().toLocaleString(),
+        editHistory: []
+    };
+    const ref = db.ref('tasks').push();
+    ref.set(newTask, ()=>{
+        closeAddTask();
+        document.getElementById('taskInput').value='';
+        document.getElementById('commentInput').value='';
+        document.getElementById('assignedInput').value='';
+        loadTasks();
     });
-  }
+}
 
-  function downloadExcel() {
-    const ws_data = [["Task","Assigned To","Date Added","Comment","Status","Edit History"]];
-    tasks.forEach(t => {
-      ws_data.push([t.task, t.assignedTo, t.date, t.comment, t.status, t.history.join(" | ")]);
+// Edit
+function openEdit(id, comment){
+    currentEditId = id;
+    oldComment = comment;
+    document.getElementById('editCommentInput').value = comment;
+    document.getElementById('editPopup').style.display='block';
+}
+function closeEdit(){ document.getElementById('editPopup').style.display='none'; }
+function saveEdit(){
+    const newComment = document.getElementById('editCommentInput').value;
+    db.ref('tasks/'+currentEditId).once('value', snap=>{
+        const data = snap.val();
+        if(!data.editHistory) data.editHistory=[];
+        if(newComment !== oldComment){
+            data.editHistory.push({old: oldComment, new: newComment, time: new Date().toLocaleString()});
+            db.ref('tasks/'+currentEditId+'/comment').set(newComment);
+            db.ref('tasks/'+currentEditId+'/editHistory').set(data.editHistory);
+        }
+        closeEdit();
+        loadTasks();
     });
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(ws_data);
-    XLSX.utils.book_append_sheet(wb, ws, "Tasks");
-    XLSX.writeFile(wb, "TaskList.xlsx");
-  }
+}
+
+// Delete
+function deleteTask(id){ if(confirm("Delete this task?")) db.ref('tasks/'+id).remove(loadTasks); }
+
+// Status
+function updateStatus(id, select){
+    const val = select.value;
+    select.style.background = val==="Complete"?"lightgreen":"salmon";
+    db.ref('tasks/'+id+'/status').set(val);
+}
+
+// Export Excel
+function exportToExcel(){
+    db.ref('tasks').once('value', snapshot=>{
+        const data = [];
+        snapshot.forEach(snap=>{
+            const d = snap.val();
+            data.push({
+                Task: d.task,
+                "Date Added": d.dateAdded,
+                "Assigned To": d.assignedTo || "",
+                Comment: d.comment,
+                Status: d.status
+            });
+        });
+        const ws = XLSX.utils.json_to_sheet(data);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+        XLSX.writeFile(wb, "TaskList.xlsx");
+    });
+}
+
+// Initial load
+loadTasks();
 </script>
 
 </body>
-
 </html>
