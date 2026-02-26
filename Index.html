@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Task List</title>
+<style>
+  body { font-family: Arial, sans-serif; padding: 20px; background: #4D148C; color: #fff; }
+  table { border-collapse: collapse; width: 100%; margin-top: 20px; background: #fff; color: #000; }
+  th, td { border: 1px solid #ccc; padding: 8px; text-align: left; vertical-align: top; }
+  th { background: #FF6600; color: #fff; }
+  input, button, select { padding: 5px; margin: 5px 0; }
+  button { background: #4D148C; color: #fff; border: none; cursor: pointer; }
+  button:hover { background: #FF6600; color: #000; }
+  .edit-container { display: flex; flex-direction: column; }
+  .history { font-size: 0.8em; color: #333; max-height: 150px; overflow-y: auto; background: #f9f9f9; padding: 6px; border-radius: 4px; margin-top: 6px; border: 1px solid #ccc; }
+</style>
+</head>
+<body>
+
+<h2>Task List</h2>
+
+<label>Task: <input type="text" id="taskInput"></label><br>
+<label>Assigned To: <input type="text" id="assignedInput"></label><br>
+<label>Comment: <input type="text" id="commentInput"></label><br>
+<button onclick="addTask()">Add Task</button>
+<button onclick="downloadExcel()">Download Excel</button>
+
+<table id="taskTable">
+  <thead>
+    <tr>
+      <th>Task</th>
+      <th>Assigned To</th>
+      <th>Date Added</th>
+      <th>Comment</th>
+      <th>Status</th>
+      <th>Actions</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<script>
+  // ----- Firebase config -----
+  const firebaseConfig = {
+    apiKey: "AIzaSyAYW9gEZOpNjhCGhyXaUbIGDIHThQY1tmo",
+    authDomain: "task-list-80827.firebaseapp.com",
+    databaseURL: "https://task-list-80827-default-rtdb.firebaseio.com",
+    projectId: "task-list-80827",
+    storageBucket: "task-list-80827.firebasestorage.app",
+    messagingSenderId: "576934957722",
+    appId: "1:576934957722:web:c4be19707d3d6257740523"
+  };
+
+  // ----- Initialize Firebase -----
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.database();
+
+  let tasks = [];
+  let editIndex = null;
+
+  // Listen for real-time updates
+  db.ref('tasks').on('value', snapshot => {
+    tasks = snapshot.val() || [];
+    updateTable();
+  });
+
+  function saveData() {
+    db.ref('tasks').set(tasks);
+  }
+
+  function addTask() {
+    const task = document.getElementById('taskInput').value.trim();
+    const assigned = document.getElementById('assignedInput').value.trim();
+    const comment = document.getElementById('commentInput').value.trim();
+    if (!task) { alert("Enter a task!"); return; }
+    tasks.push({
+      task: task,
+      assignedTo: assigned,
+      date: new Date().toISOString().slice(0,10),
+      comment: comment,
+      status: "Incomplete",
+      history: [`${new Date().toLocaleString()}: Created → ${comment}`]
+    });
+    saveData();
+    document.getElementById('taskInput').value = '';
+    document.getElementById('assignedInput').value = '';
+    document.getElementById('commentInput').value = '';
+  }
+
+  function updateStatus(index, selectElem) {
+    tasks[index].status = selectElem.value;
+    saveData();
+  }
+
+  function editTask(index) {
+    editIndex = index;
+    updateTable();
+  }
+
+  function saveTask(index) {
+    const inputComment = document.getElementById(`editComment${index}`);
+    const inputAssigned = document.getElementById(`editAssigned${index}`);
+    const oldComment = tasks[index].comment;
+    const oldAssigned = tasks[index].assignedTo;
+
+    if (inputComment.value !== oldComment) {
+      tasks[index].history.push(`${new Date().toLocaleString()}: "${oldComment}" → "${inputComment.value}"`);
+      tasks[index].comment = inputComment.value;
+    }
+    if (inputAssigned.value !== oldAssigned) {
+      tasks[index].history.push(`${new Date().toLocaleString()}: Assigned To "${oldAssigned}" → "${inputAssigned.value}"`);
+      tasks[index].assignedTo = inputAssigned.value;
+    }
+    editIndex = null;
+    saveData();
+  }
+
+  function deleteTask(index) {
+    if (confirm("Are you sure you want to delete this task?")) {
+      tasks.splice(index, 1);
+      editIndex = null;
+      saveData();
+    }
+  }
+
+  function updateTable() {
+    const tbody = document.querySelector('#taskTable tbody');
+    tbody.innerHTML = '';
+    tasks.forEach((t, i) => {
+      let rowColor = t.status === 'Complete' ? '#c6efce' : '#ffc7ce';
+
+      let taskCell = t.task;
+      let assignedCell = t.assignedTo;
+      let commentCell = t.comment;
+      let actionsCell = `<button onclick="editTask(${i})">Edit</button> <button onclick="deleteTask(${i})">Delete</button>`;
+
+      if (editIndex === i) {
+        taskCell = t.task;
+        assignedCell = `<input type="text" id="editAssigned${i}" value="${t.assignedTo}">`;
+        commentCell = `<div class="edit-container">
+                        <input type="text" id="editComment${i}" value="${t.comment}">
+                        <button onclick="saveTask(${i})">Save</button>
+                        <div class="history">${t.history.map(h=>`<div>${h}</div>`).join('')}</div>
+                       </div>`;
+        actionsCell = `<button onclick="deleteTask(${i})">Delete</button>`;
+      }
+
+      tbody.innerHTML += `<tr style="background-color:${rowColor}">
+        <td>${taskCell}</td>
+        <td>${assignedCell}</td>
+        <td>${t.date}</td>
+        <td>${commentCell}</td>
+        <td>
+          <select onchange="updateStatus(${i}, this)">
+            <option ${t.status==='Incomplete'?'selected':''}>Incomplete</option>
+            <option ${t.status==='Complete'?'selected':''}>Complete</option>
+          </select>
+        </td>
+        <td>${actionsCell}</td>
+      </tr>`;
+    });
+  }
+
+  function downloadExcel() {
+    const ws_data = [["Task","Assigned To","Date Added","Comment","Status","Edit History"]];
+    tasks.forEach(t => {
+      ws_data.push([t.task, t.assignedTo, t.date, t.comment, t.status, t.history.join(" | ")]);
+    });
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet(ws_data);
+    XLSX.utils.book_append_sheet(wb, ws, "Tasks");
+    XLSX.writeFile(wb, "TaskList.xlsx");
+  }
+</script>
+
+</body>
+</html>
