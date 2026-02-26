@@ -6,7 +6,7 @@
 <style>
 body {
     font-family: Arial, sans-serif;
-    background-color: #4d148c; /* FedEx purple background */
+    background-color: #4d148c; /* FedEx purple */
     color: white;
     padding: 20px;
 }
@@ -88,11 +88,10 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-// Globals
 let currentEditId = null;
 let oldComment = "";
 
-// Load tasks
+// Load tasks from Firebase
 function loadTasks() {
     const tbody = document.querySelector("#taskTable tbody");
     tbody.innerHTML = "";
@@ -123,14 +122,15 @@ function loadTasks() {
     });
 }
 
-// Add Task
+// Add Task functions
 function showAddTask(){ document.getElementById('addTaskPopup').style.display='block'; }
 function closeAddTask(){ document.getElementById('addTaskPopup').style.display='none'; }
 function addTask(){
-    const task = document.getElementById('taskInput').value;
-    const comment = document.getElementById('commentInput').value;
-    const assignedTo = document.getElementById('assignedInput').value;
+    const task = document.getElementById('taskInput').value.trim();
+    const comment = document.getElementById('commentInput').value.trim();
+    const assignedTo = document.getElementById('assignedInput').value.trim();
     if(!task) return alert("Task required");
+
     const newTask = {
         task,
         comment,
@@ -139,17 +139,16 @@ function addTask(){
         dateAdded: new Date().toLocaleString(),
         editHistory: []
     };
-    const ref = db.ref('tasks').push();
-    ref.set(newTask, ()=>{
+    db.ref('tasks').push(newTask, () => {
+        document.getElementById('taskInput').value = '';
+        document.getElementById('commentInput').value = '';
+        document.getElementById('assignedInput').value = '';
         closeAddTask();
-        document.getElementById('taskInput').value='';
-        document.getElementById('commentInput').value='';
-        document.getElementById('assignedInput').value='';
         loadTasks();
     });
 }
 
-// Edit
+// Edit Task functions
 function openEdit(id, comment){
     currentEditId = id;
     oldComment = comment;
@@ -158,7 +157,7 @@ function openEdit(id, comment){
 }
 function closeEdit(){ document.getElementById('editPopup').style.display='none'; }
 function saveEdit(){
-    const newComment = document.getElementById('editCommentInput').value;
+    const newComment = document.getElementById('editCommentInput').value.trim();
     db.ref('tasks/'+currentEditId).once('value', snap=>{
         const data = snap.val();
         if(!data.editHistory) data.editHistory=[];
@@ -173,9 +172,11 @@ function saveEdit(){
 }
 
 // Delete
-function deleteTask(id){ if(confirm("Delete this task?")) db.ref('tasks/'+id).remove(loadTasks); }
+function deleteTask(id){
+    if(confirm("Delete this task?")) db.ref('tasks/'+id).remove(loadTasks);
+}
 
-// Status
+// Status update
 function updateStatus(id, select){
     const val = select.value;
     select.style.background = val==="Complete"?"lightgreen":"salmon";
